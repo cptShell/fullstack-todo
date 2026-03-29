@@ -11,7 +11,15 @@ app.use(cors());
 app.use(express.json());
 
 app.get('/todos', (req, res) => {
-  res.send(todos);
+  const completed = req.query.completed;
+
+  if (completed !== undefined) {
+    const isCompleted = completed === 'true';
+    res.json(todos.filter(todo => todo.completed === isCompleted));
+    return;
+  }
+
+  res.json(todos);
 });
 
 app.get('/todos/:id', (req, res) => {
@@ -27,22 +35,30 @@ app.get('/todos/:id', (req, res) => {
     return res.status(404).json({ error: 'Todo not found' });
   }
 
-  res.send(targetTodo);
+  res.json(targetTodo);
 });
 
-app.post('/todos/create', (
+app.post('/todos', (
   req: express.Request<unknown, unknown, TodoPayload>,
   res
 ) => {
-  const { body } = req;
+  const { text } = req.body;
 
-  const newTodo = { ...body, id: crypto.randomUUID() as string }
+  if (!text || typeof text !== 'string' || text.trim() === '') {
+    return res.status(400).json({ error: 'Title is required' });
+  }
+
+  const newTodo = {
+    text,
+    id: crypto.randomUUID() as string,
+    completed: false,
+  };
   todos.push(newTodo);
 
-  res.status(201).send(newTodo);
+  res.status(201).json(newTodo);
 });
 
-app.patch('/todos/update/:id', (
+app.patch('/todos/:id', (
   req: express.Request<TodoSearchParams, unknown, TodoUpdatePayload>,
   res
 ) => {
@@ -63,10 +79,10 @@ app.patch('/todos/update/:id', (
 
   todos[targetTodoIndex] = updatedTodo;
 
-  res.send(updatedTodo);
+  res.json(updatedTodo);
 });
 
-app.delete('/todos/delete/:id', (req: express.Request<TodoSearchParams>, res) => {
+app.delete('/todos/:id', (req: express.Request<TodoSearchParams>, res) => {
   const targetId = req.params.id;
 
   if (!targetId) {
@@ -81,7 +97,7 @@ app.delete('/todos/delete/:id', (req: express.Request<TodoSearchParams>, res) =>
 
   const removedTodo = todos.splice(targetTodoIndex, 1);
 
-  res.send(removedTodo[0]);
+  res.json(removedTodo[0]);
 });
 
 app.listen(port, () => {
