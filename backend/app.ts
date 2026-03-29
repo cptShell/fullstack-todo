@@ -1,8 +1,12 @@
 import express from "express";
-import crypto from "crypto";
 import cors from "cors";
-import { todos } from "./data.ts";
+import dotenv from "dotenv";
+import { PrismaClient } from "./generated/prisma/client.ts";
+import { PrismaPg } from "@prisma/adapter-pg";
+import pg from "pg";
 import { TodoPayload, TodoSearchParams, TodoUpdatePayload } from "./types.ts";
+
+dotenv.config();
 
 const app = express();
 const port = 3000;
@@ -10,26 +14,35 @@ const port = 3000;
 app.use(cors());
 app.use(express.json());
 
-app.get('/todos', (req, res) => {
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+const adapter = new PrismaPg(pool);
+const prisma = new PrismaClient({ adapter });
+
+app.get('/todos', async (req, res) => {
   const completed = req.query.completed;
 
-  if (completed !== undefined) {
-    const isCompleted = completed === 'true';
-    res.json(todos.filter(todo => todo.completed === isCompleted));
-    return;
-  }
+  const where = completed !== undefined 
+    ? { completed: completed === 'true' }
+    : {};
+
+  const todos = await prisma.todo.findMany({
+    where,
+    orderBy: { createdAt: 'desc' }
+  });
 
   res.json(todos);
 });
 
-app.get('/todos/:id', (req, res) => {
+app.get('/todos/:id', async (req, res) => {
   const targetId = req.params.id;
-  console.log(targetId);
+
   if (!targetId) {
     return res.status(400).json({ error: 'Invalid id' });
   }
 
-  const targetTodo = todos.find(todo => todo.id === targetId);
+  const targetTodo = await prisma.todo.findUnique({
+    where: { id: targetId }
+  });
 
   if (!targetTodo) {
     return res.status(404).json({ error: 'Todo not found' });
@@ -38,27 +51,24 @@ app.get('/todos/:id', (req, res) => {
   res.json(targetTodo);
 });
 
-app.post('/todos', (
+app.post('/todos', async (
   req: express.Request<unknown, unknown, TodoPayload>,
   res
 ) => {
-  const { text } = req.body;
+  const { title } = req.body;
 
-  if (!text || typeof text !== 'string' || text.trim() === '') {
+  if (!title || typeof title !== 'string' || title.trim() === '') {
     return res.status(400).json({ error: 'Title is required' });
   }
 
-  const newTodo = {
-    text,
-    id: crypto.randomUUID() as string,
-    completed: false,
-  };
-  todos.push(newTodo);
+  const data = { title: title.trim(), completed: false };
+
+  const newTodo = await prisma.todo.create({ data });
 
   res.status(201).json(newTodo);
 });
 
-app.patch('/todos/:id', (
+app.patch('/todos/:id', async (
   req: express.Request<TodoSearchParams, unknown, TodoUpdatePayload>,
   res
 ) => {
@@ -69,35 +79,42 @@ app.patch('/todos/:id', (
     return res.status(400).json({ error: 'Invalid id' });
   }
 
-  const targetTodoIndex = todos.findIndex(todo => todo.id === targetId);
+  const targetTodo = await prisma.todo.findUnique({
+    where: { id: targetId }
+  });
 
-  if (targetTodoIndex === -1) {
+  if (!targetTodo) {
     return res.status(404).json({ error: 'Todo not found' });
   }
 
-  const updatedTodo = { ...todos[targetTodoIndex], ...payload };
-
-  todos[targetTodoIndex] = updatedTodo;
+  const updatedTodo = await prisma.todo.update({
+    where: { id: targetId },
+    data: payload
+  });
 
   res.json(updatedTodo);
 });
 
-app.delete('/todos/:id', (req: express.Request<TodoSearchParams>, res) => {
+app.delete('/todos/:id', async (req: express.Request<TodoSearchParams>, res) => {
   const targetId = req.params.id;
 
   if (!targetId) {
     return res.status(400).json({ error: 'Invalid id' });
   }
 
-  const targetTodoIndex = todos.findIndex(todo => todo.id === targetId);
+  const targetTodo = await prisma.todo.findUnique({
+    where: { id: targetId }
+  });
 
-  if (targetTodoIndex === -1) {
+  if (!targetTodo) {
     return res.status(404).json({ error: 'Todo not found' });
   }
 
-  const removedTodo = todos.splice(targetTodoIndex, 1);
+  const removedTodo = await prisma.todo.delete({
+    where: { id: targetId }
+  });
 
-  res.json(removedTodo[0]);
+  res.json(removedTodo);
 });
 
 app.listen(port, () => {
