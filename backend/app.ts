@@ -4,7 +4,6 @@ import dotenv from "dotenv";
 import { PrismaClient } from "./generated/prisma/client.ts";
 import { PrismaPg } from "@prisma/adapter-pg";
 import pg from "pg";
-import { TodoPayload, TodoSearchParams, TodoUpdatePayload } from "./types.ts";
 
 dotenv.config();
 
@@ -17,6 +16,46 @@ app.use(express.json());
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
+
+app.get('/users', async (req, res) => {
+  const users = await prisma.user.findMany();
+  res.json(users);
+});
+
+app.get('/users/:id', async (req, res) => {
+  const targetId = req.params.id;
+  const user = await prisma.user.findUnique({ where: { id: targetId } });
+
+  if (!user) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+
+  res.json(user);
+});
+
+app.post('/users', async (req, res) => {
+  const { name, email } = req.body;
+  const user = await prisma.user.create({ data: { name, email } });
+  res.status(201).json(user);
+});
+
+app.patch('/users/:id', async (req, res) => {
+  const targetId = req.params.id;
+  const { name, email } = req.body;
+
+  if ("userId" in req.body) {
+    return res.status(400).json({ error: "Cannot change userId" });
+  }
+
+  const user = await prisma.user.update({ where: { id: targetId }, data: { name, email } });
+  res.json(user);
+});
+
+app.delete('/users/:id', async (req, res) => {
+  const targetId = req.params.id;
+  const user = await prisma.user.delete({ where: { id: targetId } });
+  res.json(user);
+});
 
 app.get('/todos', async (req, res) => {
   const completed = req.query.completed;
@@ -51,27 +90,29 @@ app.get('/todos/:id', async (req, res) => {
   res.json(targetTodo);
 });
 
-app.post('/todos', async (
-  req: express.Request<unknown, unknown, TodoPayload>,
-  res
-) => {
-  const { title } = req.body;
+app.post('/todos', async (req, res) => {
+  const { title, userId } = req.body;
 
   if (!title || typeof title !== 'string' || title.trim() === '') {
     return res.status(400).json({ error: 'Title is required' });
   }
 
-  const data = { title: title.trim(), completed: false };
+  if (!userId || typeof userId !== 'string') {
+    return res.status(400).json({ error: 'User id is required' });
+  }
+
+  const data = {
+    title: title.trim(),
+    completed: false,
+    user: { connect: { id: userId } }
+  };
 
   const newTodo = await prisma.todo.create({ data });
 
   res.status(201).json(newTodo);
 });
 
-app.patch('/todos/:id', async (
-  req: express.Request<TodoSearchParams, unknown, TodoUpdatePayload>,
-  res
-) => {
+app.patch('/todos/:id', async (req, res) => {
   const targetId = req.params.id;
   const payload = req.body;
 
@@ -95,7 +136,7 @@ app.patch('/todos/:id', async (
   res.json(updatedTodo);
 });
 
-app.delete('/todos/:id', async (req: express.Request<TodoSearchParams>, res) => {
+app.delete('/todos/:id', async (req, res) => {
   const targetId = req.params.id;
 
   if (!targetId) {
