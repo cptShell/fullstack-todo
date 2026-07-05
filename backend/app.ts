@@ -88,14 +88,60 @@ app.post('/users', async (req, res) => {
 
 app.patch('/users/:id', async (req, res) => {
   const targetId = req.params.id;
-  const { name, email } = req.body;
 
-  if ("userId" in req.body) {
-    return res.status(400).json({ error: "Cannot change userId" });
+  const allowedFields = ['name', 'email'];
+  const unknownFields = Object.keys(req.body).filter((field) => !allowedFields.includes(field));
+
+  if (unknownFields.length > 0) {
+    return res.status(400).json({
+      error: `Unknown fields are not allowed: ${unknownFields.join(', ')}`,
+    });
   }
 
-  const user = await prisma.user.update({ where: { id: targetId }, data: { name, email } });
-  res.json(user);
+  const payload: { name?: string; email?: string } = {};
+
+  if ('name' in req.body) {
+    if (!isNonEmptyString(req.body.name)) {
+      return res.status(400).json({ error: 'Name must be a non-empty string' });
+    }
+
+    payload.name = req.body.name.trim();
+  }
+
+  if ('email' in req.body) {
+    if (!isNonEmptyString(req.body.email)) {
+      return res.status(400).json({ error: 'Email must be a non-empty string' });
+    }
+
+    if (!isValidEmail(req.body.email)) {
+      return res.status(400).json({ error: 'Email must be valid' });
+    }
+
+    payload.email = req.body.email.trim().toLowerCase();
+  }
+
+  if (Object.keys(payload).length === 0) {
+    return res.status(400).json({ error: 'At least one field is required' });
+  }
+
+  try {
+    const user = await prisma.user.update({ where: { id: targetId }, data: payload });
+  
+    res.json(user);
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === 'P2002') {
+        return res.status(409).json({ error: 'Email already exists' });
+      }
+
+      if (error.code === 'P2025') {
+        return res.status(404).json({ error: 'User not found' }); 
+      }
+    }
+
+    console.error(error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 app.delete('/users/:id', async (req, res) => {
