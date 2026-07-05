@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import { PrismaClient } from "./generated/prisma/client.ts";
+import { Prisma, PrismaClient } from "./generated/prisma/client.ts";
 import { PrismaPg } from "@prisma/adapter-pg";
 import pg from "pg";
 
@@ -16,6 +16,14 @@ app.use(express.json());
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
+
+const isNonEmptyString = (value: unknown): value is string => {
+  return typeof value === 'string' && value.trim().length > 0;
+};
+
+const isValidEmail = (value: string) => {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+};
 
 app.get('/health', async (req, res) => {
   res.status(200).json({
@@ -43,8 +51,39 @@ app.get('/users/:id', async (req, res) => {
 
 app.post('/users', async (req, res) => {
   const { name, email } = req.body;
-  const user = await prisma.user.create({ data: { name, email } });
-  res.status(201).json(user);
+
+  if (!isNonEmptyString(name)) {
+    return res.status(400).json({ error: 'Name is required' });
+  }
+
+  if (!isNonEmptyString(email)) {
+    return res.status(400).json({ error: 'Email is required' });
+  }
+
+  if (!isValidEmail(email)) {
+    return res.status(400).json({ error: 'Email must be valid' });
+  }
+
+  try {
+    const user = await prisma.user.create({
+      data: {
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+      },
+    });
+
+    res.status(201).json(user);
+  } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2002'
+    ) {
+      return res.status(409).json({ error: 'Email already exists' });
+    }
+
+    console.error(error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 app.patch('/users/:id', async (req, res) => {
