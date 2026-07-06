@@ -218,8 +218,38 @@ app.post('/todos', async (req, res) => {
 });
 
 app.patch('/todos/:id', async (req, res) => {
+  const allowedFields = ['title', 'completed'];
+  const unknownFields = Object.keys(req.body).filter((field) => !allowedFields.includes(field));
+
+  if (unknownFields.length > 0) {
+    return res.status(400).json({
+      error: `Unknown fields are not allowed: ${unknownFields.join(', ')}`,
+    });
+  }
+
+  const payload: { title?: string; completed?: boolean } = {};
+
+  if ('title' in req.body) {
+    if (!isNonEmptyString(req.body.title)) {
+      return res.status(400).json({ error: 'Title must be a non-empty string' });
+    }
+
+    payload.title = req.body.title.trim();
+  }
+
+  if ('completed' in req.body) {
+    if (typeof req.body.completed !== 'boolean') {
+      return res.status(400).json({ error: 'Completed must be a boolean' });
+    }
+
+    payload.completed = req.body.completed;
+  }  
+
+  if (Object.keys(payload).length === 0) {
+    return res.status(400).json({ error: 'At least one field is required' });
+  }
+
   const targetId = req.params.id;
-  const payload = req.body;
 
   if (!targetId) {
     return res.status(400).json({ error: 'Invalid id' });
