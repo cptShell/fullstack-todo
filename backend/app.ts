@@ -200,9 +200,21 @@ app.post('/todos', async (req, res) => {
     user: { connect: { id: userId } }
   };
 
-  const newTodo = await prisma.todo.create({ data });
+  try {
+    const newTodo = await prisma.todo.create({ data });
 
-  res.status(201).json(newTodo);
+    res.status(201).json(newTodo);
+  } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2025'
+    ) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    console.error(error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 app.patch('/todos/:id', async (req, res) => {
